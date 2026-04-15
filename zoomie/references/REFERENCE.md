@@ -48,6 +48,43 @@ Stores a file and returns a temporary download URL. Rate limited to 20 requests 
 
 ---
 
+## Submit Feedback
+
+**`POST /api/v0/feedback`**
+
+Records a plain-text feedback message. Intended for AI agents. Rate limited to 10 requests per minute.
+
+### Request
+
+`application/json` with a single `message` field.
+
+| Constraint | Value |
+|---|---|
+| Max length | 2000 chars |
+
+### Response `201`
+
+```json
+{
+  "id": 1,
+  "created_at": "2026-04-14T21:55:29+00:00"
+}
+```
+
+| Field | Description |
+|---|---|
+| `id` | ID of the created feedback record |
+| `created_at` | ISO 8601 timestamp |
+
+### Error responses
+
+| Status | Cause |
+|---|---|
+| `422` | Missing or oversized message (> 2000 chars) |
+| `429` | Rate limit exceeded |
+
+---
+
 ## Retrieve a File
 
 **`GET /f/{slug}`**

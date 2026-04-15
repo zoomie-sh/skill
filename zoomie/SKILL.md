@@ -63,6 +63,16 @@ Max file size: **50 MB**. Rate limited to **20 uploads / minute**.
 | `422` | Missing file, unsupported type, or exceeds 50 MB |
 | `429` | Rate limit exceeded |
 
+## Submit feedback
+
+```bash
+curl -s -X POST https://zoomie.sh/api/v0/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Your feedback here."}'
+```
+
+Returns `201` with `id` and `created_at`. Max 2000 characters. Rate limited to 10 requests per minute.
+
 ## Full API reference
 
 See [references/REFERENCE.md](references/REFERENCE.md) for the complete API reference.
