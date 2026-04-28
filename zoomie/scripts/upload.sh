@@ -23,7 +23,7 @@ if [[ ! -f "$FILE" ]]; then
 fi
 
 RESPONSE=$(curl -sS -w "\n%{http_code}" \
-    -X POST "$BASE_URL/api/v0/upload" \
+    -X POST "$BASE_URL/api/v0/files" \
     -F "file=@$FILE")
 
 HTTP_CODE=$(printf '%s' "$RESPONSE" | tail -n1)

@@ -10,7 +10,7 @@ description: >
 
 # Zoomie
 
-**Skill version: 1.0.0**
+**Skill version: 2.0.0**
 
 Upload any file and get a short-lived URL. No account required. Files expire after 24 hours.
 
@@ -23,11 +23,21 @@ To install or update: `npx skills add zoomie-sh/skill --skill zoomie -g`
 
 ## Upload a file
 
+Anonymous (no account needed):
+
 ```bash
 ./scripts/upload.sh /path/to/file.pdf
 ```
 
-Outputs the live URL (e.g. `https://zoomie.sh/f/sunny-otter-ab12cd34`).
+Authenticated:
+
+```bash
+curl -s -X POST https://zoomie.sh/api/v0/files \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN" \
+  -F "file=@/path/to/file.pdf"
+```
+
+Outputs the live URL (e.g. `https://zoomie.sh/api/v0/files/sunny-otter-ab12cd34`).
 
 ## Supported file types
 
@@ -38,7 +48,31 @@ Outputs the live URL (e.g. `https://zoomie.sh/f/sunny-otter-ab12cd34`).
 | Data/Code | `application/json`, `text/csv`, `text/xml`, `application/xml`, `text/html` |
 | Archives  | `application/zip`, `application/gzip`, `application/x-tar` |
 
-Max file size: **50 MB**. Rate limited to **20 uploads / minute**.
+Max file size: **50 MB**.
+
+## Authentication (optional)
+
+Get a token via two API calls — no browser needed.
+
+**Step 1 — Request a code:**
+
+```bash
+curl -s -X POST https://zoomie.sh/api/v0/auth/request-code \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com"}'
+```
+
+**Step 2 — Verify and get token:**
+
+```bash
+curl -s -X POST https://zoomie.sh/api/v0/auth/verify-code \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "code": "ABCD-1234"}'
+```
+
+Returns `{ "token": "1|abc123...", "token_type": "Bearer" }`. Store and reuse the token.
+
+Agents with their own inboxes (e.g. AgentMail) can fully automate this flow.
 
 ## Response fields
 
@@ -54,14 +88,38 @@ Max file size: **50 MB**. Rate limited to **20 uploads / minute**.
 
 - Always share the `url` from the response.
 - Remind the user the link **expires in 24 hours**.
-- Images and PDFs render inline in the browser. Append `?download=1` to force a file download.
+- All files are served as downloads (attachment).
 
 ## Errors
 
 | Status | Cause |
 |--------|-------|
 | `422` | Missing file, unsupported type, or exceeds 50 MB |
-| `429` | Rate limit exceeded |
+
+## Manage files (authenticated only)
+
+**List uploads:**
+
+```bash
+curl -s https://zoomie.sh/api/v0/files \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN"
+```
+
+**Rename an upload:**
+
+```bash
+curl -s -X PUT https://zoomie.sh/api/v0/files/{slug} \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -F "file=@/path/to/new-file.pdf"
+```
+
+**Delete an upload:**
+
+```bash
+curl -s -X DELETE https://zoomie.sh/api/v0/files/{slug} \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN"
+```
 
 ## Submit feedback
 
@@ -71,7 +129,7 @@ curl -s -X POST https://zoomie.sh/api/v0/feedback \
   -d '{"message": "Your feedback here."}'
 ```
 
-Returns `201` with `id` and `created_at`. Max 2000 characters. Rate limited to 10 requests per minute.
+Returns `201` with `{"status": "ok"}`. Max 2000 characters. Optional auth: include Bearer token to associate feedback with a user.
 
 ## Full API reference
 
