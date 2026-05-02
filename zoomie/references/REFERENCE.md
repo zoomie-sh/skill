@@ -1,249 +1,123 @@
-# Zoomie API Reference
+# Zoomie
 
-Base URL: `https://zoomie.sh/api/v0`
+> Zoomie is a markdown file hosting service. Store markdown content and get shareable HTML and raw markdown URLs. Anonymous files expire after 7 days. Authenticate via email OTP to store files permanently.
 
----
+## API
 
-## Authentication
+Base URL: `https://zoomie.sh/api/v1`
 
-Authentication is optional. All endpoints work anonymously. Authenticated users get a higher upload rate limit (60/min vs 20/min).
+All requests and responses use `application/json`.
 
-### Request a login code
+### Authentication (optional)
 
-**`POST /api/v0/auth/request-code`**
+Two-step email OTP. Authentication is optional — all endpoints work anonymously. Authenticated files never expire; anonymous files expire after 7 days.
 
-```bash
-curl -s -X POST https://zoomie.sh/api/v0/auth/request-code \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com"}'
-```
+**Step 1 — Request code**
+
+`POST /api/v1/auth/request-code`
+
+Body: `{ "email": "user@example.com" }`
 
 Returns `200`: `{ "message": "Code sent to user@example.com" }`
 
-Rate limit: 5 requests per hour per IP. Code expires in 10 minutes.
+Creates a user account if the email is new. Requesting a new code invalidates the previous active code.
 
----
+Rate limit: 5 per 60 min per IP. Code expires in 10 minutes.
 
-### Verify code and get token
+**Step 2 — Verify code**
 
-**`POST /api/v0/auth/verify-code`**
+`POST /api/v1/auth/verify-code`
 
-```bash
-curl -s -X POST https://zoomie.sh/api/v0/auth/verify-code \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "code": "ABCD-1234"}'
-```
+Body: `{ "email": "user@example.com", "code": "ABC123" }`
 
-Dashes in the code are optional (`ABCD1234` also works).
+Returns `200`: `{ "token": "1|abc123...", "token_type": "Bearer" }`
 
-Returns `200`:
+Codes are single-use and must match the email used for `request-code`.
 
-```json
-{
-  "token": "1|abc123...",
-  "token_type": "Bearer"
-}
-```
+Rate limit: 10 per 60 min per IP.
 
-Rate limit: 10 requests per hour per IP.
+Use as `Authorization: Bearer {token}` on subsequent requests.
 
----
+### Store a File
 
-## Health Check
+`POST /api/v1/files`
 
-**`GET /api/v0/health`**
+Body: `{ "content": "# markdown here", "title": "optional", "summary": "optional" }`
 
-Returns the service status. No authentication or rate limit.
+- `content` required, max 1,048,576 bytes (1 MB). `size` in the response reflects byte length.
+- `title` optional, max 100 chars
+- `summary` optional, max 500 chars
 
-### Response `200`
+Rate limit: 20/min anonymous, 60/min authenticated.
 
-```json
-{ "status": "ok" }
-```
-
----
-
-## Upload a File
-
-**`POST /api/v0/files`**
-
-Stores a file and returns a temporary download URL. Rate limited to 20 requests per minute (anonymous) or 60 requests per minute (authenticated).
-
-Optionally include `Authorization: Bearer {token}` for the higher rate limit.
-
-### Request
-
-`multipart/form-data` with a single `file` field.
-
-| Constraint | Value |
-|---|---|
-| Max size | 50 MB |
-| Allowed types | `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml`, `application/pdf`, `text/plain`, `text/markdown`, `application/json`, `text/csv`, `text/xml`, `application/xml`, `text/html`, `application/zip`, `application/gzip`, `application/x-tar` |
-
-### Examples
-
-Anonymous:
-
-```bash
-curl -s -X POST https://zoomie.sh/api/v0/files \
-  -F "file=@/path/to/file.pdf"
-```
-
-Authenticated (higher rate limit):
-
-```bash
-curl -s -X POST https://zoomie.sh/api/v0/files \
-  -H "Authorization: Bearer 1|abc123..." \
-  -F "file=@/path/to/file.pdf"
-```
-
-### Response `201`
+Returns `201`:
 
 ```json
 {
-  "url": "https://zoomie.sh/api/v0/files/sunny-otter-ab12cd34",
-  "slug": "sunny-otter-ab12cd34",
-  "expires_at": "2026-04-05T12:00:00+00:00",
-  "size": 204800,
-  "original_name": "report.pdf"
+  "id": "...",
+  "slug": "sunny-otter-ab12cd34ef56",
+  "html_url": "https://zoomie.sh/files/sunny-otter-ab12cd34ef56",
+  "markdown_url": "https://zoomie.sh/files/sunny-otter-ab12cd34ef56.md",
+  "title": null,
+  "summary": null,
+  "size": 42,
+  "expires_at": "2026-05-08T00:00:00+00:00",
+  "created_at": "...",
+  "updated_at": "...",
+  "upload_token": "abc123..."
 }
 ```
 
-| Field | Description |
-|---|---|
-| `url` | Direct link to retrieve the file |
-| `slug` | Unique identifier (`adjective-animal-random8`) |
-| `expires_at` | ISO 8601 timestamp — file is deleted after this |
-| `size` | File size in bytes |
-| `original_name` | Original filename as uploaded |
+`upload_token` is only present for anonymous uploads. Use it as `Authorization: Bearer {upload_token}` to update or delete the file later. `expires_at` is omitted for authenticated files.
 
-### Error responses
+Free accounts limited to 1,000 files (`422` when reached).
 
-| Status | Cause |
-|---|---|
-| `422` | Validation failed (missing file, wrong type, too large) |
-| `429` | Rate limit exceeded |
+Slugs use `adjective-animal-random12`, e.g. `sunny-otter-ab12cd34ef56`.
 
----
+### Get a File
 
-## Submit Feedback
+`GET /api/v1/files/{slug}`
 
-**`POST /api/v0/feedback`**
+Returns `200` with file resource (same shape as above, without `upload_token`). Returns `404` if expired or not found. No authentication required.
 
-Records a plain-text feedback message. Intended for AI agents. Rate limited to 10 requests per minute. Optional auth: include Bearer token to associate feedback with a user.
+### List Files (authenticated)
 
-### Request
+`GET /api/v1/files` — requires `Authorization: Bearer {token}`
 
-`application/json` with a single `message` field.
+Returns paginated files, newest first, 20 per page.
 
-| Constraint | Value |
-|---|---|
-| Max length | 2000 chars |
+Response: `{ "data": [...files], "links": {...}, "meta": { "current_page": 1, "last_page": N, "per_page": 20, "total": N } }`
 
-### Response `201`
+### Update a File
 
-```json
-{ "status": "ok" }
-```
+`PUT /api/v1/files/{slug}` or `PATCH /api/v1/files/{slug}`
 
-| Field | Description |
-|---|---|
-| `status` | Always `"ok"` when feedback recorded |
+All fields optional — only include what you want to change.
 
-### Error responses
+Body: `{ "content": "...", "title": "...", "summary": "..." }`
 
-| Status | Cause |
-|---|---|
-| `422` | Missing or oversized message (> 2000 chars) |
-| `429` | Rate limit exceeded |
+Authenticated users: `Authorization: Bearer {token}`. Anonymous users: `Authorization: Bearer {upload_token}`.
 
----
+Returns `200` with updated file resource. Returns `401` if no token or anonymous upload token is invalid, `404` if not found or not owned, `422` on validation errors.
 
-## Retrieve a File
+### Delete a File
 
-**`GET /api/v0/files/{slug}`**
+`DELETE /api/v1/files/{slug}`
 
-Downloads the file as an attachment (`Content-Disposition: attachment`). No authentication required. Returns `404` if the slug is unknown or the file has expired.
+Authenticated users: `Authorization: Bearer {token}`. Anonymous users: `Authorization: Bearer {upload_token}`.
 
-### Error responses
+Returns `204`. Returns `401` if no token or anonymous upload token is invalid, `404` if not found or not owned.
 
-| Status | Cause |
-|---|---|
-| `404` | Slug not found or file expired |
+### Submit Feedback
 
----
+`POST /api/v1/feedback`
 
-## List Files
+Body: `{ "message": "...", "source": "claude-sonnet-4-6" }` (`message` required, max 2000 chars; `source` optional)
 
-**`GET /api/v0/files`**
+Rate limit: 10 per 10 min per IP. IP recorded server-side. Optional auth associates feedback with user.
 
-Returns a paginated list of the authenticated user's uploads, ordered newest first. Requires authentication.
+Returns `201`: `{ "status": "ok" }`
 
-```bash
-curl -s https://zoomie.sh/api/v0/files \
-  -H "Authorization: Bearer 1|abc123..."
-```
+## Full API Reference
 
-Returns `200` with pagination envelope (`data`, `current_page`, `last_page`, `per_page`, `total`).
-
-### Error responses
-
-| Status | Cause |
-|---|---|
-| `401` | Unauthenticated |
-
----
-
-## Update a File
-
-**`PUT /api/v0/files/{slug}`**
-
-Replaces the stored file. Metadata (name, MIME type, size) is derived from the new file. Expiry resets to 24 hours. Only the owner may update. Requires authentication.
-
-```bash
-curl -s -X PUT https://zoomie.sh/api/v0/files/sunny-otter-ab12cd34 \
-  -H "Authorization: Bearer 1|abc123..." \
-  -F "file=@/path/to/new-file.pdf"
-```
-
-Returns `200` with the updated upload object.
-
-### Error responses
-
-| Status | Cause |
-|---|---|
-| `401` | Unauthenticated |
-| `403` | Upload does not belong to the authenticated user |
-| `404` | Slug not found |
-| `422` | Validation failed |
-
----
-
-## Delete a File
-
-**`DELETE /api/v0/files/{slug}`**
-
-Permanently deletes the upload record and file from disk. Only the owner may delete. Requires authentication.
-
-```bash
-curl -s -X DELETE https://zoomie.sh/api/v0/files/sunny-otter-ab12cd34 \
-  -H "Authorization: Bearer 1|abc123..."
-```
-
-Returns `204` no content.
-
-### Error responses
-
-| Status | Cause |
-|---|---|
-| `401` | Unauthenticated |
-| `403` | Upload does not belong to the authenticated user |
-| `404` | Slug not found |
-
----
-
-## Notes
-
-- Files expire **24 hours** after upload.
-- Slugs are unique and take the form `adjective-animal-random8` (e.g. `misty-capybara-kx9fqrzt`).
-- `store` and `show` are public — no auth needed. `index`, `update`, and `destroy` require a Bearer token.
+- [OpenAPI schema](/openapi.json)

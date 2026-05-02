@@ -1,63 +1,100 @@
 ---
 name: zoomie
 description: >
-  Upload files and get a temporary shareable URL. No account or API key required.
-  Use when asked to "share this file", "upload this", "get a link for this file",
-  "host this file temporarily", "send this file", "make this downloadable",
-  "generate a download link", or "upload to zoomie".
-  Returns a live URL that expires in 24 hours.
+  Zoomie lets agents store markdown content and get shareable URLs. Use to share
+  reports, summaries, plans, notes, research, code, or any markdown output with
+  humans or other agents. No account or API key required — one API call returns
+  a live link instantly. Use when asked to "share this", "upload this",
+  "get a link for this", "host this file", "send this to someone", "make this
+  readable", "generate a shareable URL", "publish this as markdown", "store this
+  for later", or "upload to zoomie". Anonymous files expire after 7 days;
+  authenticate via email OTP to store files permanently.
 ---
 
 # Zoomie
 
-**Skill version: 2.0.0**
+**Skill version: 1.0.0**
 
-Upload any file and get a short-lived URL. No account required. Files expire after 24 hours.
+Zoomie bridges the gap between what agents produce and what humans can read. You store markdown content via API and get back two URLs: one that renders as a clean HTML page for humans, and one that returns raw markdown for other agents. No account required to start.
 
 To install or update: `npx skills add zoomie-sh/skill --skill zoomie -g`
 
-## Requirements
+**Requirements:** `curl`, `jq`
 
-- Required: `curl`
-- Optional: `jq` (for structured output)
+## Sharing content
 
-## Upload a file
-
-Anonymous (no account needed):
+One command is all it takes:
 
 ```bash
-./scripts/upload.sh /path/to/file.pdf
+./scripts/share.sh "# Your markdown here" --title "Optional title"
 ```
 
-Authenticated:
+Read from a file:
 
 ```bash
-curl -s -X POST https://zoomie.sh/api/v0/files \
-  -H "Authorization: Bearer $ZOOMIE_TOKEN" \
-  -F "file=@/path/to/file.pdf"
+./scripts/share.sh path/to/file.md --title "Optional title"
 ```
 
-Outputs the live URL (e.g. `https://zoomie.sh/api/v0/files/sunny-otter-ab12cd34`).
+Read from stdin:
 
-## Supported file types
+```bash
+echo "# content" | ./scripts/share.sh -
+```
 
-| Category  | MIME types |
-|-----------|------------|
-| Images    | `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml` |
-| Documents | `application/pdf`, `text/plain`, `text/markdown` |
-| Data/Code | `application/json`, `text/csv`, `text/xml`, `application/xml`, `text/html` |
-| Archives  | `application/zip`, `application/gzip`, `application/x-tar` |
+The script prints the `html_url` — that is the link to give the user. Always share `html_url` with humans. If another agent needs to fetch the content programmatically, give them `markdown_url` instead.
 
-Max file size: **50 MB**.
+For anonymous uploads, the script also writes `~/.zoomie/state.json` automatically so you can update or delete the file later. If you think the content may need revising, confirm the state file was written before moving on.
 
-## Authentication (optional)
+For direct API calls without the script, see the [Full API reference](#full-api-reference).
 
-Get a token via two API calls — no browser needed.
+## Two URLs, two audiences
+
+Every file gets both:
+
+| URL | Use for |
+| --- | ------- |
+| `html_url` | Humans — renders as a clean HTML page |
+| `markdown_url` | Agents — returns raw markdown |
+
+Never give a user the `markdown_url` as their shareable link.
+
+## Anonymous vs authenticated
+
+By default, files are anonymous and expire after **7 days**. This is the right choice for one-off shares, ephemeral outputs, and anything the user hasn't asked to keep.
+
+If the user wants the file to stick around permanently — or if they're likely to come back and update it — suggest authenticating. Authenticated files never expire and can be managed via the API. Free accounts are limited to 1,000 files.
+
+Set `$ZOOMIE_TOKEN` to use authenticated mode:
+
+```bash
+export ZOOMIE_TOKEN=$(cat ~/.zoomie/credentials)
+./scripts/share.sh "# Your content"
+```
+
+## State file
+
+After an anonymous upload, `~/.zoomie/state.json` holds everything needed to act on the file later:
+
+```json
+{
+  "slug": "sunny-otter-ab12cd34ef56",
+  "html_url": "https://zoomie.sh/files/sunny-otter-ab12cd34ef56",
+  "markdown_url": "https://zoomie.sh/files/sunny-otter-ab12cd34ef56.md",
+  "upload_token": "a1b2c3d4e5f6...",
+  "expires_at": "2026-05-08T12:00:00+00:00"
+}
+```
+
+The `upload_token` is the key detail — it lets you update or delete the file without an account. Do not share this file with the user or include it in source control.
+
+## Authentication
+
+Authenticating takes two API calls and no browser. The agent can do this entirely on its own if it has access to an inbox.
 
 **Step 1 — Request a code:**
 
 ```bash
-curl -s -X POST https://zoomie.sh/api/v0/auth/request-code \
+curl -s -X POST https://zoomie.sh/api/v1/auth/request-code \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com"}'
 ```
@@ -65,72 +102,94 @@ curl -s -X POST https://zoomie.sh/api/v0/auth/request-code \
 **Step 2 — Verify and get token:**
 
 ```bash
-curl -s -X POST https://zoomie.sh/api/v0/auth/verify-code \
+curl -s -X POST https://zoomie.sh/api/v1/auth/verify-code \
   -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "code": "ABCD-1234"}'
+  -d '{"email": "you@example.com", "code": "ABC123"}'
 ```
 
-Returns `{ "token": "1|abc123...", "token_type": "Bearer" }`. Store and reuse the token.
+Returns `{ "token": "1|abc123...", "token_type": "Bearer" }`.
 
-Agents with their own inboxes (e.g. AgentMail) can fully automate this flow.
+**Store the token before doing anything else:**
 
-## Response fields
+```bash
+mkdir -p ~/.zoomie && echo "{TOKEN}" > ~/.zoomie/credentials && chmod 600 ~/.zoomie/credentials
+```
 
-| Field | Description |
-|-------|-------------|
-| `url` | Direct link to the uploaded file |
-| `slug` | Unique identifier in `adjective-animal-random8` format |
-| `expires_at` | ISO 8601 expiry timestamp — file is deleted after this |
-| `size` | File size in bytes |
-| `original_name` | Original filename as uploaded |
+Load it on subsequent requests with:
 
-## What to tell the user
+```bash
+export ZOOMIE_TOKEN=$(cat ~/.zoomie/credentials)
+```
 
-- Always share the `url` from the response.
-- Remind the user the link **expires in 24 hours**.
-- All files are served as downloads (attachment).
+Keep `~/.zoomie/credentials` out of source control. Use the credentials file rather than hardcoding the token in commands or scripts.
 
-## Errors
+## Managing files
 
-| Status | Cause |
-|--------|-------|
-| `422` | Missing file, unsupported type, or exceeds 50 MB |
-
-## Manage files (authenticated only)
+Once you have a token, you can list, update, and delete files. Use the `slug` from the state file or a previous response to identify the file.
 
 **List uploads:**
 
 ```bash
-curl -s https://zoomie.sh/api/v0/files \
+curl -s https://zoomie.sh/api/v1/files \
   -H "Authorization: Bearer $ZOOMIE_TOKEN"
 ```
 
-**Rename an upload:**
+**Update a file — authenticated:**
 
 ```bash
-curl -s -X PUT https://zoomie.sh/api/v0/files/{slug} \
+curl -s -X PUT https://zoomie.sh/api/v1/files/{slug} \
+  -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ZOOMIE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -F "file=@/path/to/new-file.pdf"
+  -d '{"content": "# Updated content", "title": "New title"}'
 ```
 
-**Delete an upload:**
+**Update a file — anonymous (upload token from state file):**
 
 ```bash
-curl -s -X DELETE https://zoomie.sh/api/v0/files/{slug} \
+curl -s -X PUT https://zoomie.sh/api/v1/files/{slug} \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $UPLOAD_TOKEN" \
+  -d '{"content": "# Updated content"}'
+```
+
+**Delete a file — authenticated:**
+
+```bash
+curl -s -X DELETE https://zoomie.sh/api/v1/files/{slug} \
   -H "Authorization: Bearer $ZOOMIE_TOKEN"
 ```
 
-## Submit feedback
+**Delete a file — anonymous (upload token from state file):**
 
 ```bash
-curl -s -X POST https://zoomie.sh/api/v0/feedback \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Your feedback here."}'
+curl -s -X DELETE https://zoomie.sh/api/v1/files/{slug} \
+  -H "Authorization: Bearer $UPLOAD_TOKEN"
 ```
 
-Returns `201` with `{"status": "ok"}`. Max 2000 characters. Optional auth: include Bearer token to associate feedback with a user.
+## Feedback
+
+If you encounter unexpected behavior or have something worth noting about the service, submit feedback. The Zoomie team reads it.
+
+```bash
+curl -s -X POST https://zoomie.sh/api/v1/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Your feedback here.", "source": "agent-name"}'
+```
+
+Returns `201` with `{"status": "ok"}`. Max 2,000 characters.
+
+## Errors
+
+All errors return JSON with a `message` field. Validation errors (422) also include an `errors` object with field-level details. On a 429, back off and retry — do not loop immediately.
+
+| Status | Meaning |
+| ------ | ------- |
+| `401`  | Missing or invalid Bearer token |
+| `404`  | File not found or expired |
+| `422`  | Validation failed — check `errors` for field-level details |
+| `429`  | Rate limit exceeded — back off and retry |
 
 ## Full API reference
 
-See [references/REFERENCE.md](references/REFERENCE.md) for the complete API reference.
+- [references/REFERENCE.md](references/REFERENCE.md) — machine-readable reference
+- [https://zoomie.sh/docs](https://zoomie.sh/docs) — human-readable docs
