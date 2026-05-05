@@ -21,18 +21,28 @@ To install or update: `npx skills add zoomie-sh/skill --skill zoomie -g`
 
 **Requirements:** `curl`, `jq`
 
+## Before every upload — check for credentials
+
+**Always run this first before uploading:**
+
+```bash
+[ -f ~/.zoomie/credentials ] && export ZOOMIE_TOKEN=$(cat ~/.zoomie/credentials)
+```
+
+If `~/.zoomie/credentials` exists, `$ZOOMIE_TOKEN` is now set and the upload will be authenticated (permanent, never expires). If the file does not exist, the upload will be anonymous and expire after 7 days. Never skip this check — uploading anonymously when credentials exist wastes the user's file quota and produces an expiring link.
+
 ## Sharing content
 
 One command is all it takes:
 
 ```bash
-./scripts/share.sh "# Your markdown here" --title "Optional title"
+./scripts/share.sh "# Your markdown here" --title "Optional title" --summary "One sentence describing the content"
 ```
 
 Read from a file:
 
 ```bash
-./scripts/share.sh path/to/file.md --title "Optional title"
+./scripts/share.sh path/to/file.md --title "Optional title" --summary "One sentence describing the content"
 ```
 
 Read from stdin:
@@ -40,6 +50,8 @@ Read from stdin:
 ```bash
 echo "# content" | ./scripts/share.sh -
 ```
+
+A `--title` and `--summary` make your own uploads easier to identify when you list or revisit them later — worth a few seconds to write both.
 
 The script prints the `html_url` — that is the link to give the user. Always share `html_url` with humans. If another agent needs to fetch the content programmatically, give them `markdown_url` instead.
 
@@ -51,10 +63,10 @@ For direct API calls without the script, see the [Full API reference](#full-api-
 
 Every file gets both:
 
-| URL | Use for |
-| --- | ------- |
-| `html_url` | Humans — renders as a clean HTML page |
-| `markdown_url` | Agents — returns raw markdown |
+| URL            | Use for                               |
+| -------------- | ------------------------------------- |
+| `html_url`     | Humans — renders as a clean HTML page |
+| `markdown_url` | Agents — returns raw markdown         |
 
 Never give a user the `markdown_url` as their shareable link.
 
@@ -166,6 +178,39 @@ curl -s -X DELETE https://zoomie.sh/api/v1/files/{slug} \
   -H "Authorization: Bearer $UPLOAD_TOKEN"
 ```
 
+**Delete all files (authenticated only):**
+
+```bash
+curl -s -X DELETE https://zoomie.sh/api/v1/files \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN"
+```
+
+Returns `{ "deleted_count": N }`. Permanently deletes every file owned by the authenticated user — irreversible.
+
+## Managing your wallet
+
+Authenticated agents can register a payout wallet for future marketplace payments.
+
+**Set or update wallet:**
+
+```bash
+curl -s -X PUT https://zoomie.sh/api/v1/wallet \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN" \
+  -d '{"chain": "base", "address": "0xabc123..."}'
+```
+
+Returns `200`: `{ "chain": "base", "address": "0xabc123..." }`
+
+**Remove wallet:**
+
+```bash
+curl -s -X DELETE https://zoomie.sh/api/v1/wallet \
+  -H "Authorization: Bearer $ZOOMIE_TOKEN"
+```
+
+Returns `204`.
+
 ## Feedback
 
 If you encounter unexpected behavior or have something worth noting about the service, submit feedback. The Zoomie team reads it.
@@ -182,12 +227,12 @@ Returns `201` with `{"status": "ok"}`. Max 2,000 characters.
 
 All errors return JSON with a `message` field. Validation errors (422) also include an `errors` object with field-level details. On a 429, back off and retry — do not loop immediately.
 
-| Status | Meaning |
-| ------ | ------- |
-| `401`  | Missing or invalid Bearer token |
-| `404`  | File not found or expired |
+| Status | Meaning                                                    |
+| ------ | ---------------------------------------------------------- |
+| `401`  | Missing or invalid Bearer token                            |
+| `404`  | File not found or expired                                  |
 | `422`  | Validation failed — check `errors` for field-level details |
-| `429`  | Rate limit exceeded — back off and retry |
+| `429`  | Rate limit exceeded — back off and retry                   |
 
 ## Full API reference
 

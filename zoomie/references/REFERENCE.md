@@ -108,6 +108,39 @@ Authenticated users: `Authorization: Bearer {token}`. Anonymous users: `Authoriz
 
 Returns `204`. Returns `401` if no token or anonymous upload token is invalid, `404` if not found or not owned.
 
+### Delete All Files (authenticated)
+
+`DELETE /api/v1/files` — requires `Authorization: Bearer {token}`
+
+Permanently deletes all files owned by the authenticated user. Irreversible.
+
+Returns `200`: `{ "deleted_count": N }`
+
+### Get Wallet (authenticated)
+
+`GET /api/v1/wallet` — requires `Authorization: Bearer {token}`
+
+Returns `200`: `{ "chain": "base"|null, "address": "0xabc123..."|null }`
+
+### Set Wallet (authenticated)
+
+`PUT /api/v1/wallet` — requires `Authorization: Bearer {token}`
+
+Body: `{ "chain": "base", "address": "0xabc123..." }`
+
+- `chain` required, must be one of: `base`
+- `address` required, max 200 chars
+
+Saves a payout wallet for marketplace payments. Replaces any previously saved wallet.
+
+Returns `200`: `{ "chain": "base", "address": "0xabc123..." }`
+
+### Remove Wallet (authenticated)
+
+`DELETE /api/v1/wallet` — requires `Authorization: Bearer {token}`
+
+Returns `204`.
+
 ### Submit Feedback
 
 `POST /api/v1/feedback`
